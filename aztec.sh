@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "⚠️ 本脚本必须以 root（或 sudo）权限运行。"
+  echo "⚠️ 本脚本必须以 root 权限运行。"
   exit 1
 fi
 
