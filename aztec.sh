@@ -1,107 +1,170 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 检查是否以 root 权限运行
 if [ "$(id -u)" -ne 0 ]; then
-  echo "⚠️ 本脚本必须以 root 权限运行。"
+  echo "本脚本必须以 root 权限运行。"
   exit 1
 fi
 
-# 检查 Docker 是否安装及版本
+# 定义常量
 MIN_DOCKER_VERSION="20.10"
-if command -v docker &> /dev/null; then
-  DOCKER_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
-  if [ "$(printf '%s\n' "$DOCKER_VERSION" "$MIN_DOCKER_VERSION" | sort -V | head -n1)" = "$MIN_DOCKER_VERSION" ]; then
-    echo "🐋 Docker 已安装，版本 $DOCKER_VERSION，满足要求。"
-  else
-    echo "🐋 Docker 版本 $DOCKER_VERSION 过低（要求 >= $MIN_DOCKER_VERSION），将重新安装..."
-    DOCKER_INSTALL=true
-  fi
-else
-  echo "🐋 未找到 Docker，正在安装..."
-  DOCKER_INSTALL=true
-fi
-
-# 如果需要安装 Docker
-if [ "${DOCKER_INSTALL:-false}" = true ]; then
-  apt-get update
-  apt-get install -y \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    gnupg-agent \
-    software-properties-common
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-  add-apt-repository \
-    "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-    $(lsb_release -cs) stable"
-  apt-get update
-  apt-get install -y docker-ce docker-ce-cli containerd.io
-fi
-
-# 检查 Docker Compose 是否安装及版本
 MIN_COMPOSE_VERSION="1.29.2"
-if command -v docker-compose &> /dev/null; then
-  COMPOSE_VERSION=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
-  if [ "$(printf '%s\n' "$COMPOSE_VERSION" "$MIN_COMPOSE_VERSION" | sort -V | head -n1)" = "$MIN_COMPOSE_VERSION" ]; then
-    echo "🐋 Docker Compose 已安装，版本 $COMPOSE_VERSION，满足要求。"
-  else
-    echo "🐋 Docker Compose 版本 $COMPOSE_VERSION 过低（要求 >= $MIN_COMPOSE_VERSION），将重新安装..."
-    COMPOSE_INSTALL=true
-  fi
-else
-  echo "🐋 未找到 Docker Compose，正在安装..."
-  COMPOSE_INSTALL=true
-fi
+AZTEC_CLI_URL="https://install.aztec.network"
+DATA_DIR="$(pwd)/data"
 
-# 如果需要安装 Docker Compose
-if [ "${COMPOSE_INSTALL:-false}" = true ]; then
+# 函数：打印信息
+print_info() {
+  echo "$1"
+}
+
+# 函数：检查命令是否存在
+check_command() {
+  command -v "$1" &> /dev/null
+}
+
+# 函数：比较版本号
+version_ge() {
+  [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
+
+# 函数：安装依赖
+install_package() {
+  local pkg=$1
+  print_info "安装 $pkg..."
+  apt-get install -y "$pkg"
+}
+
+# 更新 apt 源（只执行一次）
+update_apt() {
+  if [ -z "${APT_UPDATED:-}" ]; then
+    print_info "更新 apt 源..."
+    apt-get update
+    APT_UPDATED=1
+  fi
+}
+
+# 检查并安装 Docker
+install_docker() {
+  if check_command docker; then
+    local version
+    version=$(docker --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
+    if version_ge "$version" "$MIN_DOCKER_VERSION"; then
+      print_info "Docker 已安装，版本 $version，满足要求（>= $MIN_DOCKER_VERSION）。"
+      return
+    else
+      print_info "Docker 版本 $version 过低（要求 >= $MIN_DOCKER_VERSION），将重新安装..."
+    fi
+  else
+    print_info "未找到 Docker，正在安装..."
+  fi
+
+  update_apt
+  install_package "apt-transport-https ca-certificates curl gnupg-agent software-properties-common"
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  update_apt
+  install_package "docker-ce docker-ce-cli containerd.io"
+}
+
+# 检查并安装 Docker Compose
+install_docker_compose() {
+  if check_command docker-compose; then
+    local version
+    version=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
+    if version_ge "$version" "$MIN_COMPOSE_VERSION"; then
+      print_info "Docker Compose 已安装，版本 $version，满足要求（>= $MIN_COMPOSE_VERSION）。"
+      return
+    else
+      print_info "Docker Compose 版本 $version 过低（要求 >= $MIN_COMPOSE_VERSION），将重新安装..."
+    fi
+  else
+    print_info "未找到 Docker Compose，正在安装..."
+  fi
+
   curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" \
     -o /usr/local/bin/docker-compose
   chmod +x /usr/local/bin/docker-compose
-fi
+}
 
-if ! command -v node &> /dev/null; then
-  echo "🟢 未找到 Node.js，正在安装最新版本..."
-  curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -
-  apt-get install -y nodejs
-else
-  echo "🟢 Node.js 已安装。"
-fi
+# 检查并安装 Node.js
+install_nodejs() {
+  if check_command node; then
+    print_info "Node.js 已安装。"
+    return
+  fi
 
-echo "⚙️ 安装 Aztec CLI 并准备 alpha 测试网..."
-curl -sL https://install.aztec.network | bash
+  print_info "未找到 Node.js，正在安装最新版本..."
+  curl -fsSL https://deb.nodesource.com/setup_current.x | bash -
+  update_apt
+  install_package nodejs
+}
 
-export PATH="$HOME/.aztec/bin:$PATH"
+# 安装 Aztec CLI
+install_aztec_cli() {
+  print_info "安装 Aztec CLI 并准备 alpha 测试网..."
+  if ! curl -sL "$AZTEC_CLI_URL" | bash; then
+    echo "Aztec CLI 安装失败。"
+    exit 1
+  fi
 
-if ! command -v aztec-up &> /dev/null; then
-  echo "❌ Aztec CLI 安装失败。"
-  exit 1
-fi
+  export PATH="$HOME/.aztec/bin:$PATH"
+  if ! check_command aztec-up; then
+    echo "Aztec CLI 安装失败，未找到 aztec-up 命令。"
+    exit 1
+  fi
 
-aztec-up alpha-testnet
+  aztec-up alpha-testnet
+}
 
-echo -e "\n📋 获取 RPC URL 的说明："
-echo "  - L1 执行客户端（EL）RPC URL："
-echo "    1. 在 https://dashboard.alchemy.com/ 注册或登录"
-echo "    2. 为 Sepolia 测试网创建一个新应用"
-echo "    3. 复制 HTTPS URL（例如：https://eth-sepolia.g.alchemy.com/v2/<你的密钥>）"
-echo ""
-echo "  - L1 共识（CL）RPC URL："
-echo "    1. 在 https://drpc.org/ 注册或登录"
-echo "    2. 为 Sepolia 测试网创建一个 API 密钥"
-echo "    3. 复制 HTTPS URL（例如：https://lb.drpc.org/ogrpc?network=sepolia&dkey=<你的密钥>）"
-echo ""
+# 验证 RPC URL 格式（简单检查是否以 http:// 或 https:// 开头）
+validate_url() {
+  local url=$1
+  local name=$2
+  if [[ ! "$url" =~ ^https?:// ]]; then
+    echo "错误：$name 格式无效，必须以 http:// 或 https:// 开头。"
+    exit 1
+  fi
+}
 
-read -p "▶️ L1 执行客户端（EL）RPC URL： " ETH_RPC
-read -p "▶️ L1 共识（CL）RPC URL： " CONS_RPC
-read -p "▶️ Blob Sink URL（无则按 Enter）： " BLOB_URL
-read -p "▶️ 验证者私钥： " VALIDATOR_PRIVATE_KEY
+# 主逻辑
+main() {
+  # 安装依赖
+  install_docker
+  install_docker_compose
+  install_nodejs
+  install_aztec_cli
 
-echo "🌐 获取公共 IP..."
-PUBLIC_IP=$(curl -s ifconfig.me || echo "127.0.0.1")
-echo "    → $PUBLIC_IP"
+  # 获取用户输入
+  print_info "获取 RPC URL 的说明："
+  print_info "  - L1 执行客户端（EL）RPC URL："
+  print_info "    1. 在 https://dashboard.alchemy.com/ 获取 Sepolia 的 RPC (http://xxx)"
+  print_info ""
+  print_info "  - L1 共识（CL）RPC URL："
+  print_info "    1. 在 https://drpc.org/ 获取 Sepolia 的 RPC (http://xxx)"
+  print_info ""
 
-cat > .env <<EOF
+  read -p " L1 执行客户端（EL）RPC URL： " ETH_RPC
+  read -p " L1 共识（CL）RPC URL： " CONS_RPC
+  read -p " 验证者私钥： " VALIDATOR_PRIVATE_KEY
+  BLOB_URL="" # 默认跳过 Blob Sink URL
+
+  # 验证输入
+  validate_url "$ETH_RPC" "L1 执行客户端（EL）RPC URL"
+  validate_url "$CONS_RPC" "L1 共识（CL）RPC URL"
+  if [ -z "$VALIDATOR_PRIVATE_KEY" ]; then
+    echo "错误：验证者私钥不能为空。"
+    exit 1
+  fi
+
+  # 获取公共 IP
+  print_info "获取公共 IP..."
+  PUBLIC_IP=$(curl -s ifconfig.me || echo "127.0.0.1")
+  print_info "    → $PUBLIC_IP"
+
+  # 生成 .env 文件
+  print_info "生成 .env 文件..."
+  cat > .env <<EOF
 ETHEREUM_HOSTS="$ETH_RPC"
 L1_CONSENSUS_HOST_URLS="$CONS_RPC"
 P2P_IP="$PUBLIC_IP"
@@ -110,16 +173,19 @@ DATA_DIRECTORY="/data"
 LOG_LEVEL="debug"
 EOF
 
-if [ -n "$BLOB_URL" ]; then
-  echo "BLOB_SINK_URL=\"$BLOB_URL\"" >> .env
-fi
+  if [ -n "$BLOB_URL" ]; then
+    echo "BLOB_SINK_URL=\"$BLOB_URL\"" >> .env
+  fi
 
-BLOB_FLAG=""
-if [ -n "$BLOB_URL" ]; then
-  BLOB_FLAG="--sequencer.blobSinkUrl \$BLOB_SINK_URL"
-fi
+  # 设置 BLOB_FLAG
+  BLOB_FLAG=""
+  if [ -n "$BLOB_URL" ]; then
+    BLOB_FLAG="--sequencer.blobSinkUrl \$BLOB_SINK_URL"
+  fi
 
-cat > docker-compose.yml <<EOF
+  # 生成 docker-compose.yml 文件
+  print_info "生成 docker-compose.yml 文件..."
+  cat > docker-compose.yml <<EOF
 version: "3.8"
 services:
   node:
@@ -136,14 +202,24 @@ services:
     entrypoint: >
       sh -c 'node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG'
     volumes:
-      - $(pwd)/data:/data
+      - $DATA_DIR:/data
 EOF
 
-mkdir -p data
+  # 创建数据目录
+  mkdir -p "$DATA_DIR"
 
-echo "🚀 启动 Aztec 全节点 (docker-compose up -d)..."
-docker-compose up -d
+  # 启动节点
+  print_info "启动 Aztec 全节点 (docker-compose up -d)..."
+  if ! docker-compose up -d; then
+    echo "启动 Aztec 节点失败，请检查 docker-compose logs。"
+    exit 1
+  fi
 
-echo -e "\n✅ 安装和启动完成！"
-echo "   - 查看日志：docker-compose logs -f"
-echo "   - 数据目录：$(pwd)/data"
+  # 完成
+  print_info "安装和启动完成！"
+  print_info "  - 查看日志：docker-compose logs -f"
+  print_info "  - 数据目录：$DATA_DIR"
+}
+
+# 执行主逻辑
+main
