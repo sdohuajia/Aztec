@@ -122,8 +122,8 @@ validate_url() {
   fi
 }
 
-# 主逻辑
-main() {
+# 主逻辑：安装和启动 Aztec 节点
+install_and_start_node() {
   # 安装依赖
   install_docker
   install_docker_compose
@@ -202,17 +202,100 @@ EOF
   mkdir -p "$DATA_DIR"
 
   # 启动节点
-  print_info "启动 Aztec 全节点 (docker-compose up -d)..."
-  if ! docker-compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker-compose logs。"
+  print_info "启动 Aztec 全节点 (docker compose up -d)..."
+  if ! docker compose up -d; then
+    echo "启动 Aztec 节点失败，请检查 docker logs -f aztec_node_1。"
     exit 1
   fi
 
   # 完成
   print_info "安装和启动完成！"
-  print_info "  - 查看日志：docker-compose logs -f"
+  print_info "  - 查看日志：docker logs -f aztec_node_1"
   print_info "  - 数据目录：$DATA_DIR"
 }
 
-# 执行主逻辑
-main
+# 获取区块高度和同步证明
+get_block_and_proof() {
+  if ! check_command jq; then
+    print_info "未找到 jq，正在安装..."
+    update_apt
+    install_package jq
+  fi
+
+  if [ -f "docker-compose.yml" ]; then
+    print_info "获取当前区块高度..."
+    BLOCK_NUMBER=$(curl -s -X POST -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
+      http://localhost:8080 | jq -r ".result.proven.number")
+    
+    if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
+      print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志。"
+    else
+      print_info "当前区块高度：$BLOCK_NUMBER"
+      print_info "获取同步证明..."
+      PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
+        -d "{\"jsonrpc\":\"2.0\",\"method\":\"node_getArchiveSiblingPath\",\"params\":[\"$BLOCK_NUMBER\",\"$BLOCK_NUMBER\"],\"id\":67}" \
+        http://localhost:8080 | jq -r ".result")
+      
+      if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
+        print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志。"
+      else
+        print_info "同步一次证明：$PROOF"
+      fi
+    fi
+  else
+    print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
+  fi
+}
+
+# 主菜单函数
+main_menu() {
+  while true; do
+    clear
+    echo "脚本由哈哈哈哈编写，推特 @ferdie_jhovie，免费开源，请勿相信收费"
+    echo "如有问题，可联系推特，仅此只有一个号"
+    echo "================================================================"
+    echo "退出脚本，请按键盘 ctrl + C 退出即可"
+    echo "请选择要执行的操作:"
+    echo "1. 安装并启动 Aztec 节点"
+    echo "2. 查看节点日志"
+    echo "3. 获取区块高度和同步证明"
+    echo "4. 退出"
+    read -p "请输入选项 (1-4): " choice
+
+    case $choice in
+      1)
+        install_and_start_node
+        echo "按任意键返回主菜单..."
+        read -n 1
+        ;;
+      2)
+        if [ -f "docker-compose.yml" ]; then
+          print_info "查看节点日志..."
+          docker logs -f aztec_node_1
+        else
+          print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
+        fi
+        echo "按任意键返回主菜单..."
+        read -n 1
+        ;;
+      3)
+        get_block_and_proof
+        echo "按任意键返回主菜单..."
+        read -n 1
+        ;;
+      4)
+        print_info "退出脚本..."
+        exit 0
+        ;;
+      *)
+        print_info "无效选项，请输入 1-4。"
+        echo "按任意键返回主菜单..."
+        read -n 1
+        ;;
+    esac
+  done
+}
+
+# 执行主菜单
+main_menu
