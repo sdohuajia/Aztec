@@ -136,7 +136,7 @@ main() {
   print_info "    1. 在 https://dashboard.alchemy.com/ 获取 Sepolia 的 RPC (http://xxx)"
   print_info ""
   print_info "  - L1 共识（CL）RPC URL："
-  print_info "    1. 在 https://drpc.org/ 获取 Sepolia 的 RPC (http://xxx)"
+  print_info "    1. 在 https://drpc.org/ 获取Beacon Chain Sepolia 的 RPC (http://xxx)"
   print_info ""
   read -p " L1 执行客户端（EL）RPC URL： " ETH_RPC
   read -p " L1 共识（CL）RPC URL： " CONS_RPC
