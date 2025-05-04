@@ -243,18 +243,21 @@ get_block_and_proof() {
 
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
       print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
+
+    print_info "当前区块高度：$BLOCK_NUMBER"
+    print_info "获取同步证明..."
+    PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg bn "$BLOCK_NUMBER" '{"jsonrpc":"2.0","method":"node_getArchiveSiblingPath","params":[$bn,$bn],"id":67}')" \
+      http://localhost:8080 | jq -r ".result" || echo "")
+
+    if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
+      print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
     else
-      print_info "当前区块高度：$BLOCK_NUMBER"
-      print_info "获取同步证明..."
-      PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"node_getArchiveSiblingPath\",\"params\":[\"$BLOCK_NUMBER\",\"$BLOCK_NUMBER\"],\"id":67}" \
-        http://localhost:8080 | jq -r ".result" || echo "")
-      
-      if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
-        print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
-      else
-        print_info "同步一次证明：$PROOF"
-      fi
+      print_info "同步一次证明：$PROOF"
     fi
   else
     print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
