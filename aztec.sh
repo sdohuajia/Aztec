@@ -181,7 +181,7 @@ EOF
   cat > docker-compose.yml <<EOF
 version: "3.8"
 services:
-  node:
+  root-node-1:
     image: aztecprotocol/aztec:0.85.0-alpha-testnet.5
     network_mode: host
     environment:
@@ -204,13 +204,13 @@ EOF
   # 启动节点
   print_info "启动 Aztec 全节点 (docker compose up -d)..."
   if ! docker compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker logs -f aztec_node_1。"
+    echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
     exit 1
   fi
 
   # 完成
   print_info "安装和启动完成！"
-  print_info "  - 查看日志：docker logs -f aztec_node_1"
+  print_info "  - 查看日志：docker logs -f root-node-1"
   print_info "  - 数据目录：$DATA_DIR"
 }
 
@@ -219,26 +219,31 @@ get_block_and_proof() {
   if ! check_command jq; then
     print_info "未找到 jq，正在安装..."
     update_apt
-    install_package jq
+    if ! install_package jq; then
+      print_info "错误：无法安装 jq，请检查网络或 apt 源。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
   fi
 
   if [ -f "docker-compose.yml" ]; then
     print_info "获取当前区块高度..."
     BLOCK_NUMBER=$(curl -s -X POST -H 'Content-Type: application/json' \
       -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
-      http://localhost:8080 | jq -r ".result.proven.number")
-    
+      http://localhost:8080 | jq -r ".result.proven.number" || echo "")
+
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
-      print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志。"
+      print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
     else
       print_info "当前区块高度：$BLOCK_NUMBER"
       print_info "获取同步证明..."
       PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"node_getArchiveSiblingPath\",\"params\":[\"$BLOCK_NUMBER\",\"$BLOCK_NUMBER\"],\"id\":67}" \
-        http://localhost:8080 | jq -r ".result")
+        -d "{\"jsonrpc\":\"2.0\",\"method\":\"node_getArchiveSiblingPath\",\"params\":[\"$BLOCK_NUMBER\",\"$BLOCK_NUMBER\"],\"id":67}" \
+        http://localhost:8080 | jq -r ".result" || echo "")
       
       if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
-        print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志。"
+        print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
       else
         print_info "同步一次证明：$PROOF"
       fi
@@ -275,7 +280,7 @@ main_menu() {
       2)
         if [ -f "docker-compose.yml" ]; then
           print_info "查看节点日志..."
-          docker logs --tail 200 aztec_node_1
+          docker logs --tail 200 root-node-1
         else
           print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
         fi
