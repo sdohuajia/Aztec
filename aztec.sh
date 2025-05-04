@@ -246,6 +246,9 @@ get_block_and_proof() {
   else
     print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
   fi
+
+  echo "按任意键返回主菜单..."
+  read -n 1
 }
 
 # 主菜单函数
