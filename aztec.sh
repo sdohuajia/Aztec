@@ -193,7 +193,7 @@ services:
       - LOG_LEVEL=\${LOG_LEVEL}
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
-      sh -c 'node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG'
+      sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG"
     volumes:
       - $DATA_DIR:/data
 EOF
@@ -228,6 +228,14 @@ get_block_and_proof() {
   fi
 
   if [ -f "docker-compose.yml" ]; then
+    # 检查容器是否运行
+    if ! docker ps -q -f name=root-node-1 | grep -q .; then
+      print_info "错误：容器 root-node-1 未运行，请先启动节点。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
+
     print_info "获取当前区块高度..."
     BLOCK_NUMBER=$(curl -s -X POST -H 'Content-Type: application/json' \
       -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
