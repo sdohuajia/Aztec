@@ -284,8 +284,6 @@ main_menu() {
         ;;
       3)
         get_block_and_proof
-        echo "按任意键返回主菜单..."
-        read -n 1
         ;;
       4)
         print_info "退出脚本..."
