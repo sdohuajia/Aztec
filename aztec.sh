@@ -184,6 +184,7 @@ services:
   root-node-1:
     image: aztecprotocol/aztec:0.85.0-alpha-testnet.5
     network_mode: host
+    container_name: root-node-1
     environment:
       - ETHEREUM_HOSTS=\${ETHEREUM_HOSTS}
       - L1_CONSENSUS_HOST_URLS=\${L1_CONSENSUS_HOST_URLS}
