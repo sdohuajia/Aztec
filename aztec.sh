@@ -203,9 +203,13 @@ EOF
 
   # 启动节点
   print_info "启动 Aztec 全节点 (docker compose up -d)..."
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+  echo "Docker 或 Docker Compose V2 未安装。请安装 Docker 和 Docker Compose V2，或使用 docker-compose 如果使用旧版本。"
+  exit 1
+  fi
   if ! docker compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
-    exit 1
+  echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
+  exit 1
   fi
 
   # 完成
