@@ -202,16 +202,18 @@ EOF
   mkdir -p "$DATA_DIR"
 
   # 启动节点
-  print_info "启动 Aztec 全节点 (docker compose up -d)..."
-  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-  echo "Docker 或 Docker Compose V2 未安装。请安装 Docker 和 Docker Compose V2，或使用 docker-compose 如果使用旧版本。"
-  exit 1
-  fi
+  print_info "启动 Aztec 全节点 (尝试 docker compose up -d)..."
   if ! docker compose up -d; then
-  echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
-  exit 1
+  print_info "docker compose 失败，尝试 docker-compose up -d..."
+  if ! command -v docker-compose >/dev/null 2>&1; then
+    echo "docker-compose 未安装。请安装 docker-compose 或确保 Docker Compose V2 可用。"
+    exit 1
   fi
-
+  if ! docker-compose up -d; then
+    echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
+    exit 1
+  fi
+  fi
   # 完成
   print_info "安装和启动完成！"
   print_info "  - 查看日志：docker logs -f root-node-1"
