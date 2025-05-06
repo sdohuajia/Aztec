@@ -249,7 +249,7 @@ get_block_and_proof() {
       http://localhost:8080 | jq -r ".result.proven.number" || echo "")
 
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
-      print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
+      print_info "错误：无法获取区块高度(请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
       echo "按任意键返回主菜单..."
       read -n 1
       return
@@ -285,7 +285,7 @@ main_menu() {
     echo "请选择要执行的操作:"
     echo "1. 安装并启动 Aztec 节点"
     echo "2. 查看节点日志"
-    echo "3. 获取区块高度和同步证明"
+    echo "3. 获取区块高度和同步证明（请等待半个小时后再查询）"
     echo "4. 退出"
     read -p "请输入选项 (1-4): " choice
 
