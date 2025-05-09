@@ -298,7 +298,7 @@ main_menu() {
       2)
         if [ -f "docker-compose.yml" ]; then
           print_info "查看节点日志..."
-          docker logs --tail 200 root-node-1
+          docker logs -f root-node-1
         else
           print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
         fi
