@@ -11,6 +11,7 @@ fi
 MIN_DOCKER_VERSION="20.10"
 MIN_COMPOSE_VERSION="1.29.2"
 AZTEC_CLI_URL="https://install.aztec.network"
+AZTEC_DIR="/root/aztec"
 DATA_DIR="/root/.aztec/alpha-testnet/data"
 
 # 函数：打印信息
@@ -68,9 +69,9 @@ install_docker() {
 
 # 检查并安装 Docker Compose
 install_docker_compose() {
-  if check_command docker-compose; then
+  if check_command docker-compose || docker compose version &> /dev/null; then
     local version
-    version=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
+    version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || docker compose version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
     if version_ge "$version" "$MIN_COMPOSE_VERSION"; then
       print_info "Docker Compose 已安装，版本 $version，满足要求（>= $MIN_COMPOSE_VERSION）。"
       return
@@ -80,9 +81,8 @@ install_docker_compose() {
   else
     print_info "未找到 Docker Compose，正在安装..."
   fi
-  curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" \
-    -o /usr/local/bin/docker-compose
-  chmod +x /usr/local/bin/docker-compose
+  update_apt
+  install_package docker-compose-plugin
 }
 
 # 检查并安装 Node.js
@@ -112,7 +112,7 @@ install_aztec_cli() {
   aztec-up alpha-testnet
 }
 
-# 验证 RPC URL 格式（简单检查是否以 http:// 或 https:// 开头）
+# 验证 RPC URL 格式（检查是否以 http:// 或 https:// 开头）
 validate_url() {
   local url=$1
   local name=$2
@@ -122,25 +122,57 @@ validate_url() {
   fi
 }
 
+# 验证以太坊地址格式
+validate_address() {
+  local address=$1
+  local name=$2
+  if [[ ! "$address" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
+    echo "错误：$name 格式无效，必须是有效的以太坊地址（0x 开头的 40 位十六进制）。"
+    exit 1
+  fi
+}
+
 # 主逻辑：安装和启动 Aztec 节点
 install_and_start_node() {
+  # 清理旧配置
+  print_info "清理旧的 Aztec 配置（如果存在）..."
+  rm -rf "$AZTEC_DIR/.env" "$AZTEC_DIR/docker-compose.yml"
+  docker stop aztec-sequencer 2>/dev/null || true
+  docker rm aztec-sequencer 2>/dev/null || true
+
   # 安装依赖
   install_docker
   install_docker_compose
   install_nodejs
   install_aztec_cli
 
+  # 创建 Aztec 配置目录
+  print_info "创建 Aztec 配置目录 $AZTEC_DIR..."
+  mkdir -p "$AZTEC_DIR"
+  chmod -R 755 "$AZTEC_DIR"
+
+  # 配置防火墙
+  print_info "配置防火墙，开放端口 40400 和 8080..."
+  ufw allow 40400/tcp >/dev/null 2>&1
+  ufw allow 40400/udp >/dev/null 2>&1
+  ufw allow 8080/tcp >/dev/null 2>&1
+  print_info "防火墙状态："
+  ufw status
+
   # 获取用户输入
-  print_info "获取 RPC URL 的说明："
+  print_info "获取 RPC URL 和其他配置的说明："
   print_info "  - L1 执行客户端（EL）RPC URL："
   print_info "    1. 在 https://dashboard.alchemy.com/ 获取 Sepolia 的 RPC (http://xxx)"
   print_info ""
   print_info "  - L1 共识（CL）RPC URL："
-  print_info "    1. 在 https://drpc.org/ 获取Beacon Chain Sepolia 的 RPC (http://xxx)"
+  print_info "    1. 在 https://drpc.org/ 获取 Beacon Chain Sepolia 的 RPC (http://xxx)"
+  print_info ""
+  print_info "  - COINBASE：接收奖励的以太坊地址（格式：0x...）"
   print_info ""
   read -p " L1 执行客户端（EL）RPC URL： " ETH_RPC
   read -p " L1 共识（CL）RPC URL： " CONS_RPC
-  read -p " 验证者私钥： " VALIDATOR_PRIVATE_KEY
+  read -p " 验证者私钥（0x 开头的 64 位十六进制）： " VALIDATOR_PRIVATE_KEY
+  read -p " EVM钱包 地址（以太坊地址，0x 开头）： " COINBASE
   BLOB_URL="" # 默认跳过 Blob Sink URL
 
   # 验证输入
@@ -150,6 +182,7 @@ install_and_start_node() {
     echo "错误：验证者私钥不能为空。"
     exit 1
   fi
+  validate_address "$COINBASE" "COINBASE 地址"
 
   # 获取公共 IP
   print_info "获取公共 IP..."
@@ -157,18 +190,20 @@ install_and_start_node() {
   print_info "    → $PUBLIC_IP"
 
   # 生成 .env 文件
-  print_info "生成 .env 文件..."
-  cat > .env <<EOF
+  print_info "生成 $AZTEC_DIR/.env 文件..."
+  cat > "$AZTEC_DIR/.env" <<EOF
 ETHEREUM_HOSTS="$ETH_RPC"
 L1_CONSENSUS_HOST_URLS="$CONS_RPC"
 P2P_IP="$PUBLIC_IP"
 VALIDATOR_PRIVATE_KEY="$VALIDATOR_PRIVATE_KEY"
+COINBASE="$COINBASE"
 DATA_DIRECTORY="/data"
 LOG_LEVEL="debug"
 EOF
   if [ -n "$BLOB_URL" ]; then
-    echo "BLOB_SINK_URL=\"$BLOB_URL\"" >> .env
+    echo "BLOB_SINK_URL=\"$BLOB_URL\"" >> "$AZTEC_DIR/.env"
   fi
+  chmod 600 "$AZTEC_DIR/.env"
 
   # 设置 BLOB_FLAG
   BLOB_FLAG=""
@@ -177,33 +212,38 @@ EOF
   fi
 
   # 生成 docker-compose.yml 文件
-  print_info "生成 docker-compose.yml 文件..."
-  cat > docker-compose.yml <<EOF
+  print_info "生成 $AZTEC_DIR/docker-compose.yml 文件..."
+  cat > "$AZTEC_DIR/docker-compose.yml" <<EOF
 services:
   aztec-sequencer:
-    image: aztecprotocol/aztec:alpha-testnet
-    network_mode: host
     container_name: aztec-sequencer
+    network_mode: host
+    image: aztecprotocol/aztec:alpha-testnet
+    restart: unless-stopped
     environment:
       - ETHEREUM_HOSTS=\${ETHEREUM_HOSTS}
       - L1_CONSENSUS_HOST_URLS=\${L1_CONSENSUS_HOST_URLS}
       - P2P_IP=\${P2P_IP}
       - VALIDATOR_PRIVATE_KEY=\${VALIDATOR_PRIVATE_KEY}
+      - COINBASE=\${COINBASE}
       - DATA_DIRECTORY=\${DATA_DIRECTORY}
       - LOG_LEVEL=\${LOG_LEVEL}
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
-      sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG"
+      sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer \${BLOB_FLAG:-}"
     volumes:
       - /root/.aztec/alpha-testnet/data/:/data
 EOF
+  chmod 644 "$AZTEC_DIR/docker-compose.yml"
 
   # 创建数据目录
+  print_info "创建数据目录 $DATA_DIR..."
   mkdir -p "$DATA_DIR"
   chmod -R 755 "$DATA_DIR"
 
   # 启动节点
   print_info "启动 Aztec 全节点 (尝试 docker compose up -d)..."
+  cd "$AZTEC_DIR"
   if ! docker compose up -d; then
     print_info "docker compose 失败，尝试 docker-compose up -d..."
     if ! command -v docker-compose >/dev/null 2>&1; then
@@ -218,6 +258,7 @@ EOF
   # 完成
   print_info "安装和启动完成！"
   print_info "  - 查看日志：docker logs -f aztec-sequencer"
+  print_info "  - 配置目录：$AZTEC_DIR"
   print_info "  - 数据目录：$DATA_DIR"
 }
 
@@ -234,7 +275,7 @@ get_block_and_proof() {
     fi
   fi
 
-  if [ -f "docker-compose.yml" ]; then
+  if [ -f "$AZTEC_DIR/docker-compose.yml" ]; then
     # 检查容器是否运行
     if ! docker ps -q -f name=aztec-sequencer | grep -q .; then
       print_info "错误：容器 aztec-sequencer 未运行，请先启动节点。"
@@ -249,7 +290,7 @@ get_block_and_proof() {
       http://localhost:8080 | jq -r ".result.proven.number" || echo "")
 
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
-      print_info "错误：无法获取区块高度(请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f aztec-sequencer）。"
+      print_info "错误：无法获取区块高度（请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f aztec-sequencer）。"
       echo "按任意键返回主菜单..."
       read -n 1
       return
@@ -267,7 +308,7 @@ get_block_and_proof() {
       print_info "同步一次证明：$PROOF"
     fi
   else
-    print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
+    print_info "错误：未找到 $AZTEC_DIR/docker-compose.yml 文件，请先安装并启动节点。"
   fi
 
   echo "按任意键返回主菜单..."
@@ -296,11 +337,11 @@ main_menu() {
         read -n 1
         ;;
       2)
-        if [ -f "docker-compose.yml" ]; then
+        if [ -f "$AZTEC_DIR/docker-compose.yml" ]; then
           print_info "查看节点日志..."
           docker logs -f aztec-sequencer
         else
-          print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
+          print_info "错误：未找到 $AZTEC_DIR/docker-compose.yml 文件，请先安装并启动节点。"
         fi
         echo "按任意键返回主菜单..."
         read -n 1
