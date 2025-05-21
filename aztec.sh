@@ -181,10 +181,10 @@ EOF
   cat > docker-compose.yml <<EOF
 version: "3.8"
 services:
-  root-node-1:
-    image: aztecprotocol/aztec:0.85.0-alpha-testnet.5
+  aztec-sequencer:
+    image: aztecprotocol/aztec:alpha-testnet
     network_mode: host
-    container_name: root-node-1
+    container_name: aztec-sequencer
     environment:
       - ETHEREUM_HOSTS=\${ETHEREUM_HOSTS}
       - L1_CONSENSUS_HOST_URLS=\${L1_CONSENSUS_HOST_URLS}
@@ -195,8 +195,12 @@ services:
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
       sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG"
+    ports:
+      - 40400:40400/tcp
+      - 40400:40400/udp
+      - 8080:8080
     volumes:
-      - $DATA_DIR:/data
+      - /root/.aztec/alpha-testnet/data/:/data
 EOF
 
   # 创建数据目录
@@ -211,13 +215,13 @@ EOF
     exit 1
   fi
   if ! docker-compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
+    echo "启动 Aztec 节点失败，请检查 docker logs -f aztec-sequencer。"
     exit 1
   fi
   fi
   # 完成
   print_info "安装和启动完成！"
-  print_info "  - 查看日志：docker logs -f root-node-1"
+  print_info "  - 查看日志：docker logs -f aztec-sequencer"
   print_info "  - 数据目录：$DATA_DIR"
 }
 
@@ -236,8 +240,8 @@ get_block_and_proof() {
 
   if [ -f "docker-compose.yml" ]; then
     # 检查容器是否运行
-    if ! docker ps -q -f name=root-node-1 | grep -q .; then
-      print_info "错误：容器 root-node-1 未运行，请先启动节点。"
+    if ! docker ps -q -f name=aztec-sequencer | grep -q .; then
+      print_info "错误：容器 aztec-sequencer 未运行，请先启动节点。"
       echo "按任意键返回主菜单..."
       read -n 1
       return
@@ -249,7 +253,7 @@ get_block_and_proof() {
       http://localhost:8080 | jq -r ".result.proven.number" || echo "")
 
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
-      print_info "错误：无法获取区块高度(请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
+      print_info "错误：无法获取区块高度(请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f aztec-sequencer）。"
       echo "按任意键返回主菜单..."
       read -n 1
       return
@@ -262,7 +266,7 @@ get_block_and_proof() {
       http://localhost:8080 | jq -r ".result" || echo "")
 
     if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
-      print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
+      print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f aztec-sequencer）。"
     else
       print_info "同步一次证明：$PROOF"
     fi
@@ -298,7 +302,7 @@ main_menu() {
       2)
         if [ -f "docker-compose.yml" ]; then
           print_info "查看节点日志..."
-          docker logs -f root-node-1
+          docker logs -f aztec-sequencer
         else
           print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
         fi
