@@ -11,7 +11,7 @@ fi
 MIN_DOCKER_VERSION="20.10"
 MIN_COMPOSE_VERSION="1.29.2"
 AZTEC_CLI_URL="https://install.aztec.network"
-DATA_DIR="$(pwd)/data"
+DATA_DIR="/root/.aztec/alpha-testnet/data"
 
 # 函数：打印信息
 print_info() {
@@ -179,7 +179,6 @@ EOF
   # 生成 docker-compose.yml 文件
   print_info "生成 docker-compose.yml 文件..."
   cat > docker-compose.yml <<EOF
-version: "3.8"
 services:
   aztec-sequencer:
     image: aztecprotocol/aztec:alpha-testnet
@@ -195,29 +194,26 @@ services:
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
       sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG"
-    ports:
-      - 40400:40400/tcp
-      - 40400:40400/udp
-      - 8080:8080
     volumes:
       - /root/.aztec/alpha-testnet/data/:/data
 EOF
 
   # 创建数据目录
   mkdir -p "$DATA_DIR"
+  chmod -R 755 "$DATA_DIR"
 
   # 启动节点
   print_info "启动 Aztec 全节点 (尝试 docker compose up -d)..."
   if ! docker compose up -d; then
-  print_info "docker compose 失败，尝试 docker-compose up -d..."
-  if ! command -v docker-compose >/dev/null 2>&1; then
-    echo "docker-compose 未安装。请安装 docker-compose 或确保 Docker Compose V2 可用。"
-    exit 1
-  fi
-  if ! docker-compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker logs -f aztec-sequencer。"
-    exit 1
-  fi
+    print_info "docker compose 失败，尝试 docker-compose up -d..."
+    if ! command -v docker-compose >/dev/null 2>&1; then
+      echo "docker-compose 未安装。请安装 docker-compose 或确保 Docker Compose V2 可用。"
+      exit 1
+    fi
+    if ! docker-compose up -d; then
+      echo "启动 Aztec 节点失败，请检查 docker logs -f aztec-sequencer。"
+      exit 1
+    fi
   fi
   # 完成
   print_info "安装和启动完成！"
